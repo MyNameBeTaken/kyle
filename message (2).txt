@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Final Project: Survivors Rogue - Hardcore Chaos Edition</title>
+    <style>
+        body {
+            margin: 0;
+            background: #1a1a1a;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            color: white;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+            user-select: none;
+        }
+        #gameContainer {
+            position: relative;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        canvas {
+            background: #1e1e24;
+            display: block;
+            border-radius: 4px;
+        }
+        #upgradeMenu {
+            display: none;
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            border-radius: 4px;
+        }
+        #upgradeMenu h2 {
+            color: #ffeb3b;
+            font-size: 32px;
+            margin-bottom: 30px;
+            text-shadow: 0 0 10px rgba(255,235,59,0.5);
+        }
+        .option-btn {
+            background: #333;
+            color: #fff;
+            border: 2px solid #555;
+            padding: 15px 30px;
+            margin: 10px;
+            width: 360px;
+            font-size: 18px;
+            cursor: pointer;
+            border-radius: 8px;
+            transition: all 0.2s;
+            text-align: center;
+        }
+        .option-btn:hover {
+            background: #ff9800;
+            border-color: #fff;
+            transform: scale(1.05);
+        }
+    </style>
+</head>
+<body>
+
+    <div id="gameContainer">
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+        
+        <div id="upgradeMenu">
+            <h2>LEVEL UP! Select an Upgrade:</h2>
+            <button class="option-btn" onclick="selectUpgrade('speed')">⚡ Agile Movement (+15% Move Speed)</button>
+            <button class="option-btn" onclick="selectUpgrade('atkSpeed')">🏹 Firepower Blitz (+25% Attack Speed)</button>
+            <button class="option-btn" onclick="selectUpgrade('bulletSize')">🔮 Giant Shells (+30% Size & Damage)</button>
+        </div>
+    </div>
+
+<script>
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+const upgradeMenu = document.getElementById("upgradeMenu");
+
+
+const enemyImg = new Image(); enemyImg.src = "enemy.png"; 
+const bossImg = new Image(); bossImg.src = "boss.png"; 
+
+
+let gameState = "PLAYING"; 
+let score = 0;
+let timeElapsed = 0;
+let keys = {};
+
+
+let currentWave = 1;
+let waveState = "BANNER"; 
+let waveBannerTimer = 120; 
+let totalEnemiesToSpawn = 15; 
+let enemiesSpawnedSoFar = 0; 
+let currentBoss = null; 
+
+
+const player = {
+    x: canvas.width / 2,
+    y: canvas.height / 2,
+    size: 18,
+    speed: 2.5,
+    hp: 100,
+    maxHp: 100,
+    level: 1,
+    exp: 0,
+    nextLevelExp: 100,
+    color: "#4CAF50"
+};
+
+
+const weapon = {
+    fireRate: 800, 
+    lastFired: 0,
+    bulletSpeed: 6,
+    bulletSize: 6,
+    damage: 25
+};
+
+let enemies = [];
+let bullets = [];
+let gems = [];
+let damageTexts = [];
+
+window.addEventListener("keydown", (e) => keys[e.key.toLowerCase()] = true);
+window.addEventListener("keyup", (e) => keys[e.key.toLowerCase()] = false);
+
+setInterval(() => {
+    if (gameState === "PLAYING") timeElapsed++;
+}, 1000);
+
+function startWave(waveNum) {
+    currentWave = waveNum;
+    waveState = "BANNER";
+    waveBannerTimer = 120;
+    enemiesSpawnedSoFar = 0;
+    currentBoss = null;
+    enemies = [];
+
+    if (waveNum === 1) totalEnemiesToSpawn = 15;
+    else if (waveNum === 2) totalEnemiesToSpawn = 25; 
+    else if (waveNum === 3) totalEnemiesToSpawn = 12; 
+    else if (waveNum === 4) totalEnemiesToSpawn = 20; 
+    else totalEnemiesToSpawn = 20 + waveNum * 3;     
+}
+
+let lastSpawnTime = 0;
+function handleWaveLogic(currentTime) {
+    if (waveState === "BANNER") {
+        waveBannerTimer--;
+        if (waveBannerTimer <= 0) {
+            waveState = "SPAWNING";
+            spawnBoss();
+        }
+        return;
+    }
+
+    if (waveState === "SPAWNING") {
+        let spawnInterval = 1200;
+        if (currentWave === 2) spawnInterval = 600;  
+        if (currentWave === 3) spawnInterval = 1800; 
+        if (currentWave >= 4) spawnInterval = Math.max(400, 1000 - currentWave * 50);
+
+        if (enemiesSpawnedSoFar < totalEnemiesToSpawn) {
+            if (currentTime - lastSpawnTime > spawnInterval) {
+                spawnEnemyByWave();
+                enemiesSpawnedSoFar++;
+                lastSpawnTime = currentTime;
+            }
+        } else {
+            if (enemies.length === 0 && !currentBoss) {
+                startWave(currentWave + 1);
+            }
+        }
+    }
+}
+
+function spawnEnemyByWave() {
+    let x, y;
+    if (Math.random() < 0.5) {
+        x = Math.random() < 0.5 ? -20 : canvas.width + 20;
+        y = Math.random() * canvas.height;
+    } else {
+        x = Math.random() * canvas.width;
+        y = Math.random() < 0.5 ? -20 : canvas.height + 20;
+    }
+
+    let enemyType = currentWave;
+    if (currentWave >= 5) {
+        enemyType = Math.floor(Math.random() * 4) + 1;
+    }
+
+    let newEnemy = {
+        x: x, y: y,
+        isBoss: false,
+        teleportTimer: Math.random() * 90 + 60 
+    };
+
+    switch(enemyType) {
+        case 1: 
+            newEnemy.size = 14;
+            newEnemy.hp = 20;
+            newEnemy.maxHp = 20;
+            newEnemy.speed = 1.3;
+            newEnemy.color = "#E91E63"; 
+            newEnemy.typeName = "Grunt";
+            break;
+        case 2: 
+            newEnemy.size = 10;
+            newEnemy.hp = 15;
+            newEnemy.maxHp = 15;
+            newEnemy.speed = 3.2; 
+            newEnemy.color = "#FF9800"; 
+            newEnemy.typeName = "Rusher";
+            break;
+        case 3: 
+            newEnemy.size = 22;
+            newEnemy.hp = 120; 
+            newEnemy.maxHp = 120;
+            newEnemy.speed = 0.55; 
+            newEnemy.color = "#2196F3"; 
+            newEnemy.typeName = "Tank";
+            break;
+        case 4: 
+            newEnemy.size = 13;
+            newEnemy.hp = 35;
+            newEnemy.maxHp = 35;
+            newEnemy.speed = 1.0;
+            newEnemy.color = "#00FFFF"; 
+            newEnemy.typeName = "Phantom";
+            newEnemy.isTeleporter = true;
+            break;
+    }
+
+    if (currentWave > 4) {
+        let growth = (currentWave - 4) * 15;
+        newEnemy.hp += growth;
+        newEnemy.maxHp += growth;
+    }
+
+    enemies.push(newEnemy);
+}
+
+function spawnBoss() {
+    currentBoss = {
+        x: canvas.width / 2,
+        y: 60,
+        size: 45,
+        hp: 250 + currentWave * 200, 
+        maxHp: 250 + currentWave * 200,
+        speed: 0.5, 
+        color: "#9C27B0", 
+        isBoss: true
+    };
+    enemies.push(currentBoss);
+}
+
+function handleAutoAttack(currentTime) {
+    if (enemies.length === 0) return;
+    if (currentTime - weapon.lastFired < weapon.fireRate) return;
+
+    let closestEnemy = null;
+    let minDist = Infinity;
+    for (let enemy of enemies) {
+        let dist = Math.hypot(enemy.x - player.x, enemy.y - player.y);
+        if (dist < minDist) {
+            minDist = dist;
+            closestEnemy = enemy;
+        }
+    }
+
+    if (closestEnemy) {
+        let angle = Math.atan2(closestEnemy.y - player.y, closestEnemy.x - player.x);
+        bullets.push({
+            x: player.x, y: player.y,
+            vx: Math.cos(angle) * weapon.bulletSpeed,
+            vy: Math.sin(angle) * weapon.bulletSpeed,
+            size: weapon.bulletSize,
+            damage: weapon.damage,
+            color: "#FFEB3B"
+        });
+        weapon.lastFired = currentTime;
+    }
+}
+
+function checkLevelUp() {
+    if (player.exp >= player.nextLevelExp) {
+        player.exp -= player.nextLevelExp;
+        player.level++;
+        player.nextLevelExp = Math.floor(player.nextLevelExp * 1.25);
+        gameState = "UPGRADING";
+        upgradeMenu.style.display = "flex";
+    }
+}
+
+function selectUpgrade(type) {
+    if (type === 'speed') player.speed *= 1.15;
+    if (type === 'atkSpeed') weapon.fireRate *= 0.75;
+    if (type === 'bulletSize') { weapon.bulletSize *= 1.25; weapon.damage += 8; }
+    upgradeMenu.style.display = "none";
+    gameState = "PLAYING";
+}
+
+function updateEntities() {
+    if (keys['w'] || keys['arrowup']) player.y = Math.max(player.size, player.y - player.speed);
+    if (keys['s'] || keys['arrowdown']) player.y = Math.min(canvas.height - player.size, player.y + player.speed);
+    if (keys['a'] || keys['arrowleft']) player.x = Math.max(player.size, player.x - player.speed);
+    if (keys['d'] || keys['arrowright']) player.x = Math.min(canvas.width - player.size, player.x + player.speed);
+
+    for (let i = bullets.length - 1; i >= 0; i--) {
+        let b = bullets[i]; b.x += b.vx; b.y += b.vy;
+        if (b.x < 0 || b.x > canvas.width || b.y < 0 || b.y > canvas.height) bullets.splice(i, 1);
+    }
+
+    for (let i = damageTexts.length - 1; i >= 0; i--) {
+        let t = damageTexts[i]; t.y -= 0.8; t.alpha -= 0.02;
+        if (t.alpha <= 0) damageTexts.splice(i, 1);
+    }
+
+    for (let i = gems.length - 1; i >= 0; i--) {
+        let g = gems[i];
+        let dist = Math.hypot(player.x - g.x, player.y - g.y);
+        if (dist < 90) {
+            let angle = Math.atan2(player.y - g.y, player.x - g.x);
+            g.x += Math.cos(angle) * 5.5; g.y += Math.sin(angle) * 5.5;
+        }
+        if (dist < player.size + 6) {
+            if (g.isHeal) {
+                
+                let healAmount = Math.floor(player.maxHp * 0.10);
+                player.hp = Math.min(player.maxHp, player.hp + healAmount);
+                damageTexts.push({ x: player.x, y: player.y - 20, text: `+${healAmount} HP`, alpha: 1, isHealText: true });
+            } else {
+                player.exp += g.expValue;
+                score += 5;
+                checkLevelUp();
+            }
+            gems.splice(i, 1);
+        }
+    }
+
+    for (let i = enemies.length - 1; i >= 0; i--) {
+        let e = enemies[i];
+        let angle = Math.atan2(player.y - e.y, player.x - e.x);
+        
+        if (e.isTeleporter) {
+            e.teleportTimer--;
+            if (e.teleportTimer <= 0) {
+                e.x += Math.cos(angle) * 70;
+                e.y += Math.sin(angle) * 70;
+                damageTexts.push({ x: e.x, y: e.y, text: "BLINK!", alpha: 1 });
+                e.teleportTimer = Math.random() * 120 + 90; 
+            }
+        }
+
+        e.x += Math.cos(angle) * e.speed;
+        e.y += Math.sin(angle) * e.speed;
+
+        let distToPlayer = Math.hypot(player.x - e.x, player.y - e.y);
+        if (distToPlayer < player.size + e.size) {
+            player.hp -= e.isBoss ? 1.0 : (e.size > 20 ? 0.6 : 0.3); 
+            if (player.hp <= 0) gameState = "GAMEOVER";
+        }
+
+        for (let j = bullets.length - 1; j >= 0; j--) {
+            let b = bullets[j];
+            let distToBullet = Math.hypot(b.x - e.x, b.y - e.y);
+            
+            if (distToBullet < b.size + e.size) {
+                e.hp -= b.damage;
+                damageTexts.push({ x: e.x, y: e.y - 10, text: b.damage, alpha: 1 });
+                bullets.splice(j, 1);
+                
+                if (e.hp <= 0) {
+                    let dropHeal = Math.random() < 0.15; 
+                    
+                    if (e.isBoss) {
+                        currentBoss = null;
+                        score += 2000;
+                        if (dropHeal) {
+                            gems.push({ x: e.x, y: e.y, isHeal: true, color: "#00FF66" });
+                        } else {
+                            gems.push({ x: e.x, y: e.y, expValue: 200, color: "#FFD700", isHeal: false }); 
+                        }
+                        enemies.splice(i, 1);
+                    } else {
+                        score += 50;
+                        if (dropHeal) {
+                            gems.push({ x: e.x, y: e.y, isHeal: true, color: "#00FF66" });
+                        } else {
+                            gems.push({ x: e.x, y: e.y, expValue: e.size > 20 ? 60 : 25, color: "#00E5FF", isHeal: false });
+                        }
+                        enemies.splice(i, 1);
+                    }
+                    break;
+                }
+            }
+        }
+    }
+}
+
+function drawGame() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    for (let g of gems) {
+        ctx.fillStyle = g.color; 
+        ctx.beginPath();
+        if (g.isHeal) {
+            ctx.fillRect(g.x - 3, g.y - 8, 6, 16);
+            ctx.fillRect(g.x - 8, g.y - 3, 16, 6);
+        } else {
+            ctx.arc(g.x, g.y, g.expValue > 50 ? 10 : 5, 0, Math.PI * 2); 
+            ctx.fill();
+        }
+    }
+
+    for (let b of bullets) {
+        ctx.fillStyle = b.color; ctx.beginPath();
+        ctx.arc(b.x, b.y, b.size, 0, Math.PI * 2); ctx.fill();
+    }
+
+    for (let e of enemies) {
+        if (e.isBoss) {
+            if (bossImg.complete && bossImg.width > 0) {
+                let imgSize = e.size * 2.2;
+                ctx.drawImage(bossImg, e.x - imgSize/2, e.y - imgSize/2, imgSize, imgSize);
+            } else {
+                ctx.fillStyle = e.color; ctx.beginPath();
+                ctx.arc(e.x, e.y, e.size, 0, Math.PI * 2); ctx.fill();
+                ctx.lineWidth = 4; ctx.strokeStyle = "#FFFFFF"; ctx.stroke();
+            }
+        } else {
+            if (enemyImg.complete && enemyImg.width > 0) {
+                let imgSize = e.size * 2.2;
+                ctx.drawImage(enemyImg, e.x - imgSize/2, e.y - imgSize/2, imgSize, imgSize);
+            } else {
+                ctx.fillStyle = e.color; ctx.beginPath();
+                ctx.arc(e.x, e.y, e.size, 0, Math.PI * 2); ctx.fill();
+                if (e.size > 20) {
+                    ctx.lineWidth = 2; ctx.strokeStyle = "#000000"; ctx.stroke();
+                }
+            }
+            
+            ctx.fillStyle = "rgba(0,0,0,0.5)";
+            ctx.fillRect(e.x - 15, e.y - e.size - 8, 30, 4);
+            ctx.fillStyle = "#FF5252";
+            let hpWidth = (e.hp / e.maxHp) * 30;
+            ctx.fillRect(e.x - 15, e.y - e.size - 8, Math.max(0, hpWidth), 4);
+        }
+    }
+
+    ctx.fillStyle = player.color; ctx.beginPath();
+    ctx.arc(player.x, player.y, player.size, 0, Math.PI * 2); ctx.fill();
+
+    ctx.font = "bold 14px Arial";
+    for (let t of damageTexts) {
+        if (t.isHealText) {
+            ctx.fillStyle = `rgba(0, 255, 102, ${t.alpha})`; 
+        } else {
+            ctx.fillStyle = (t.text === "BLINK!") ? "#00FFFF" : `rgba(255, 255, 255, ${t.alpha})`;
+        }
+        ctx.fillText(t.text, t.x - 10, t.y);
+    }
+
+    
+    ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillRect(0, 0, canvas.width, 50);
+    ctx.fillStyle = "#FFF"; ctx.font = "bold 16px sans-serif"; ctx.fillText("FINAL PROJECT: ROGUE", 20, 32);
+    ctx.fillStyle = "#FF9800"; ctx.font = "bold 18px sans-serif"; ctx.fillText(`WAVE: ${currentWave}`, 240, 32);
+    
+    let progressStr = currentBoss ? `⚠️ BOSS ENGAGED! Minions Left: ${totalEnemiesToSpawn - enemiesSpawnedSoFar}` : `Clearing remaining horde...`;
+    ctx.fillText(progressStr, 340, 32);
+    
+    let mins = String(Math.floor(timeElapsed / 60)).padStart(2, '0');
+    let secs = String(timeElapsed % 60).padStart(2, '0');
+    ctx.fillText(`Time: ${mins}:${secs}`, canvas.width - 210, 32);
+    ctx.fillText(`Lv.${player.level}`, canvas.width - 80, 32);
+
+    ctx.fillStyle = "#444"; ctx.fillRect(0, 46, canvas.width, 4);
+    ctx.fillStyle = "#00E5FF";
+    let expWidth = (player.exp / player.nextLevelExp) * canvas.width;
+    ctx.fillRect(0, 46, expWidth, 4);
+
+    ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(player.x - 20, player.y - player.size - 12, 40, 5);
+    ctx.fillStyle = "#4CAF50";
+    let playerHpWidth = (player.hp / player.maxHp) * 40;
+    ctx.fillRect(player.x - 20, player.y - player.size - 12, Math.max(0, playerHpWidth), 5);
+
+    
+    if (currentBoss) {
+        let barWidth = 450; let barHeight = 16;
+        let bx = canvas.width / 2 - barWidth / 2; let by = 65; 
+        ctx.fillStyle = "rgba(0,0,0,0.7)"; ctx.fillRect(bx, by, barWidth, barHeight);
+        ctx.fillStyle = "#FF1744";
+        let bossHpWidth = (currentBoss.hp / currentBoss.maxHp) * barWidth;
+        ctx.fillRect(bx, by, Math.max(0, bossHpWidth), barHeight);
+        ctx.fillStyle = "#FFF"; ctx.font = "bold 12px sans-serif";
+        ctx.fillText(`WAVE ${currentWave} DEFIANT TYRANT`, bx + 15, by + 13);
+    }
+
+    
+    if (waveState === "BANNER") {
+        ctx.fillStyle = "rgba(0, 0, 0, 0.75)"; ctx.fillRect(0, canvas.height / 2 - 70, canvas.width, 140);
+        ctx.shadowColor = "#FF9800"; ctx.shadowBlur = 20;
+        ctx.fillStyle = "#FFEB3B"; ctx.font = "bold 50px sans-serif"; ctx.textAlign = "center";
+        ctx.fillText(`WAVE ${currentWave} START!`, canvas.width / 2, canvas.height / 2 - 5);
+        
+        ctx.fillStyle = "#FFFFFF"; ctx.font = "18px sans-serif";
+        let subText = "";
+        if (currentWave === 1) subText = "Warm-up array. Clear the approaching standard horde.";
+        else if (currentWave === 2) subText = "Warning: High-speed swarm detected! Focus fire, do not walk in straight lines.";
+        else if (currentWave === 3) subText = "Fortification alert: Heavily armored units invading. Keep your distance and kite!";
+        else if (currentWave === 4) subText = "Perilous encounter: Void units capable of warping space. Watch for sudden ambushes.";
+        else subText = "Ultimate Trial: All alien mutations combined! Show your absolute kiting mastery.";
+        ctx.fillText(subText, canvas.width / 2, canvas.height / 2 + 35);
+        
+        ctx.textAlign = "left"; ctx.shadowBlur = 0;
+    }
+
+    if (gameState === "GAMEOVER") {
+        ctx.fillStyle = "rgba(0,0,0,0.85)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#FF5252"; ctx.font = "bold 45px sans-serif";
+        ctx.fillText("KILLED IN ACTION (GAME OVER)", canvas.width / 2 - 250, canvas.height / 2 - 20);
+        ctx.fillStyle = "#FFF"; ctx.font = "22px sans-serif";
+        ctx.fillText(`Defeated at Wave: ${currentWave} | Survived: ${mins}m ${secs}s`, canvas.width / 2 - 180, canvas.height / 2 + 30);
+        ctx.fillText("Refresh the page to deploy again", canvas.width / 2 - 145, canvas.height / 2 + 85);
+    }
+}
+
+startWave(1);
+
+function gameLoop(currentTime) {
+    if (gameState === "PLAYING") {
+        handleWaveLogic(currentTime);
+        handleAutoAttack(currentTime);
+        updateEntities();
+    }
+    drawGame();
+    requestAnimationFrame(gameLoop);
+}
+requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>
